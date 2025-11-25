@@ -23,7 +23,9 @@ function App() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [dropdownId, setDropdownId] = useState<number | null>(null)
-  
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const API_BASE = 'http://localhost:8000'
@@ -70,14 +72,14 @@ function App() {
     setLoading(true)
     const currentMsg = message
     setMessage('') // Optimistic clear
-    
+
     try {
       const response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: currentMsg })
       })
-      
+
       if (response.ok) {
         const convResponse = await fetch(`${API_BASE}/conversations/${currentConversation.id}`)
         const updatedConv = await convResponse.json()
@@ -92,12 +94,20 @@ function App() {
     setLoading(false)
   }
 
-  const deleteConversation = async (id: number) => {
-    if (!confirm('Supprimer cette conversation ?')) return
+  const deleteConversation = (id: number) => {
+    setDeleteTargetId(id)
+    setShowDeleteModal(true)
+  }
+
+  const confirmDelete = async () => {
+    if (deleteTargetId === null) return
+
     try {
-      await fetch(`${API_BASE}/conversations/${id}`, { method: 'DELETE' })
-      setConversations(conversations.filter(c => c.id !== id))
-      if (currentConversation?.id === id) setCurrentConversation(null)
+      await fetch(`${API_BASE}/conversations/${deleteTargetId}`, { method: 'DELETE' })
+      setConversations(conversations.filter(c => c.id !== deleteTargetId))
+      if (currentConversation?.id === deleteTargetId) setCurrentConversation(null)
+      setShowDeleteModal(false)
+      setDeleteTargetId(null)
     } catch (error) {
       console.error('Erreur suppression:', error)
     }
@@ -140,13 +150,13 @@ function App() {
       <div className="w-[320px] glass-panel flex flex-col h-full transition-all duration-300 z-20 flex-shrink-0">
         <div className="p-6 border-b border-slate-200/50 flex items-center justify-between">
           <h1 className="font-display text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-3">
-            <span className="text-3xl">✨</span>
+
             AI Chat
           </h1>
         </div>
 
         <div className="p-4 space-y-3">
-          <button 
+          <button
             onClick={() => createConversation('user_initiated')}
             className="w-full group relative overflow-hidden bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-xl transition-all duration-300 shadow-lg shadow-blue-900/20"
           >
@@ -156,8 +166,8 @@ function App() {
               Nouvelle conversation
             </div>
           </button>
-          
-          <button 
+
+          <button
             onClick={() => createConversation('ai_initiated')}
             className="w-full group bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 p-3 rounded-xl transition-all duration-300 border border-slate-200 hover:border-slate-300 flex items-center justify-center gap-2 text-sm"
           >
@@ -169,13 +179,12 @@ function App() {
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 custom-scrollbar">
           <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-4 mb-2 mt-2">Historique</div>
           {conversations.map(conv => (
-            <div 
+            <div
               key={conv.id}
-              className={`group relative rounded-xl transition-all duration-200 ${
-                currentConversation?.id === conv.id 
-                  ? 'bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/30' 
-                  : 'hover:bg-slate-100 border border-transparent'
-              }`}
+              className={`group relative rounded-xl transition-all duration-200 ${currentConversation?.id === conv.id
+                ? 'bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/30'
+                : 'hover:bg-slate-100 border border-transparent'
+                }`}
             >
               {editingId === conv.id ? (
                 <div className="p-2 flex gap-2 items-center">
@@ -191,28 +200,26 @@ function App() {
                   <button onClick={() => setEditingId(null)} className="text-red-500 hover:text-red-600 p-1"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
                 </div>
               ) : (
-                <div 
+                <div
                   onClick={() => setCurrentConversation(conv)}
                   className="p-3 cursor-pointer flex items-center gap-3"
                 >
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    currentConversation?.id === conv.id ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-slate-400'
-                  }`}></div>
-                  
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${currentConversation?.id === conv.id ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-slate-400'
+                    }`}></div>
+
                   <div className="flex-1 min-w-0">
-                    <div className={`text-sm font-medium truncate ${
-                      currentConversation?.id === conv.id 
-                        ? 'text-slate-900' 
-                        : 'text-slate-600 group-hover:text-slate-900'
-                    }`}>
+                    <div className={`text-sm font-medium truncate ${currentConversation?.id === conv.id
+                      ? 'text-slate-900'
+                      : 'text-slate-600 group-hover:text-slate-900'
+                      }`}>
                       {conv.title}
                     </div>
                     <div className="text-xs text-slate-500 truncate mt-0.5">
-                      {new Date().toLocaleDateString()} • {conv.messages?.length || 0} messages
+                      {conv.messages?.length || 0} messages
                     </div>
                   </div>
 
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); setDropdownId(dropdownId === conv.id ? null : conv.id); }}
                     className="dropdown-trigger opacity-0 group-hover:opacity-100 p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-all"
                   >
@@ -251,11 +258,10 @@ function App() {
             {/* Chat Header */}
             <div className="h-20 glass border-b border-slate-200/50 flex items-center justify-between px-8 z-10">
               <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-lg ${
-                  currentConversation.mode === 'ai_initiated' 
-                    ? 'bg-gradient-to-br from-green-500 to-emerald-600' 
-                    : 'bg-gradient-to-br from-blue-500 to-indigo-600'
-                }`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-lg ${currentConversation.mode === 'ai_initiated'
+                  ? 'bg-gradient-to-br from-green-500 to-emerald-600'
+                  : 'bg-gradient-to-br from-blue-500 to-indigo-600'
+                  }`}>
                   {currentConversation.mode === 'ai_initiated' ? '🤖' : '💬'}
                 </div>
                 <div>
@@ -276,38 +282,35 @@ function App() {
                   <p className="text-lg">Commencez la discussion...</p>
                 </div>
               )}
-              
+
               {currentConversation.messages?.map((msg, idx) => (
-                <div 
-                  key={msg.id} 
+                <div
+                  key={msg.id}
                   className={`flex gap-4 animate-slideIn ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                   style={{ animationDelay: `${idx * 0.05}s` }}
                 >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/10 ${
-                    msg.sender === 'user' 
-                      ? 'bg-gradient-to-br from-blue-600 to-indigo-600' 
-                      : 'bg-gradient-to-br from-slate-200 to-slate-300'
-                  }`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/10 ${msg.sender === 'user'
+                    ? 'bg-gradient-to-br from-blue-600 to-indigo-600'
+                    : 'bg-gradient-to-br from-slate-200 to-slate-300'
+                    }`}>
                     {msg.sender === 'user' ? '👤' : '🤖'}
                   </div>
-                  
+
                   <div className={`max-w-2xl group relative ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className={`px-6 py-4 rounded-2xl shadow-xl backdrop-blur-sm border leading-relaxed ${
-                      msg.sender === 'user' 
-                        ? 'bg-blue-600/90 text-white rounded-tr-sm border-blue-500/20' 
-                        : 'glass text-slate-800 rounded-tl-sm border-slate-200/50'
-                    }`}>
+                    <div className={`px-6 py-4 rounded-2xl shadow-xl backdrop-blur-sm border leading-relaxed ${msg.sender === 'user'
+                      ? 'bg-blue-600/90 text-white rounded-tr-sm border-blue-500/20'
+                      : 'glass text-slate-800 rounded-tl-sm border-slate-200/50'
+                      }`}>
                       {msg.content}
                     </div>
-                    <div className={`text-[10px] text-slate-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity px-1 ${
-                      msg.sender === 'user' ? 'text-right' : 'text-left'
-                    }`}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    <div className={`text-[10px] text-slate-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity px-1 ${msg.sender === 'user' ? 'text-right' : 'text-left'
+                      }`}>
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
                 </div>
               ))}
-              
+
               {loading && (
                 <div className="flex gap-4 animate-fadeIn">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center border border-white/10">
@@ -315,8 +318,8 @@ function App() {
                   </div>
                   <div className="glass px-6 py-4 rounded-2xl rounded-tl-sm flex items-center gap-2">
                     <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></span>
-                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></span>
-                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
+                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
                   </div>
                 </div>
               )}
@@ -372,6 +375,35 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/20 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-200 transform transition-all scale-100 animate-slideIn">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 text-red-500 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">Supprimer la conversation ?</h3>
+              <p className="text-slate-500 text-sm mb-6">Cette action est irréversible. Voulez-vous vraiment continuer ?</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors shadow-lg shadow-red-500/20"
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
