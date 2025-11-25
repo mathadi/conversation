@@ -12,38 +12,43 @@ class ChatServiceOllama:
             messages = [
                 {
                     "role": "system",
-                    "content": """Tu es un assistant IA intelligent, amical et naturel. 
-
-Ton rôle :
-- Réponds de manière conversationnelle et humaine
-- Sois concis mais complet dans tes réponses
-- Adapte ton ton à celui de l'utilisateur (formel/informel)
-- Pose des questions de clarification si nécessaire
-- Donne des exemples concrets quand c'est utile
-- Sois proactif et propose des solutions
-
-Style de communication :
-- Utilise un langage naturel et fluide
-- Évite les formulations robotiques
-- Montre de l'empathie et de la compréhension
-- Sois direct et va à l'essentiel
-
-Réponds toujours en français de manière claire et engageante."""
+                    "content": "Tu es un assistant IA. Réponds de manière concise et directe en français."
                 }
             ]
             
-            for msg in history:
-                role = "user" if msg.sender == "user" else "assistant"
-                messages.append({"role": role, "content": msg.content})
+            # Stratégie : garder tout le contexte mais de manière optimisée
+            if len(history) > 8:
+                # Garder les 2 premiers messages (contexte initial)
+                for msg in history[:2]:
+                    role = "user" if msg.sender == "user" else "assistant"
+                    messages.append({"role": role, "content": msg.content})
+                
+                # Ajouter un résumé du milieu
+                middle_count = len(history) - 8
+                messages.append({
+                    "role": "system",
+                    "content": f"[{middle_count} messages précédents dans la conversation]"
+                })
+                
+                # Garder les 6 derniers messages (contexte récent)
+                for msg in history[-6:]:
+                    role = "user" if msg.sender == "user" else "assistant"
+                    messages.append({"role": role, "content": msg.content})
+            else:
+                # Conversation courte : tout envoyer
+                for msg in history:
+                    role = "user" if msg.sender == "user" else "assistant"
+                    messages.append({"role": role, "content": msg.content})
             
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=120) as client:
                 response = await client.post(
                     self.api_url,
                     json={
                         "model": self.model,
                         "messages": messages,
                         "temperature": 0.7,
-                        "max_tokens": 500
+                        "max_tokens": 150,
+                        "stream": False
                     }
                 )
                 
@@ -52,13 +57,21 @@ Réponds toujours en français de manière claire et engageante."""
                     content = data["choices"][0]["message"]["content"]
                     return content, None
                 else:
-                    print(f"Erreur Ollama: {response.status_code}")
+                    error_msg = f"Erreur Ollama {response.status_code}: {response.text}"
+                    print(error_msg)
                     return "Désolé, je rencontre des difficultés techniques.", None
                     
         except Exception as e:
             import traceback
-            print(f"Erreur génération: {e}")
-            print(traceback.format_exc())
-            return f"Erreur: {str(e)}", None
+            error_trace = traceback.format_exc()
+            print(f"\n{'='*60}")
+            print(f"ERREUR GENERATION IA")
+            print(f"{'='*60}")
+            print(f"Exception: {e}")
+            print(f"Type: {type(e).__name__}")
+            print(f"\nTraceback:")
+            print(error_trace)
+            print(f"{'='*60}\n")
+            return f"Erreur technique: {type(e).__name__}", None
 
 chat_service = ChatServiceOllama()

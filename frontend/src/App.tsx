@@ -59,6 +59,7 @@ function App() {
   const sendMessage = async () => {
     if (!message.trim() || !currentConversation || loading) return
 
+    console.log('Envoi message...')
     setLoading(true)
     try {
       const response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
@@ -67,14 +68,21 @@ function App() {
         body: JSON.stringify({ content: message })
       })
       
+      console.log('Status:', response.status)
+      
       if (response.ok) {
+        const messageData = await response.json()
+        console.log('Message IA:', messageData)
         const convResponse = await fetch(`${API_BASE}/conversations/${currentConversation.id}`)
         const updatedConv = await convResponse.json()
         setCurrentConversation(updatedConv)
         setMessage('')
+      } else {
+        const errorText = await response.text()
+        console.error('Erreur:', response.status, errorText)
       }
     } catch (error) {
-      console.error('Erreur envoi message:', error)
+      console.error('Exception:', error)
     }
     setLoading(false)
   }
