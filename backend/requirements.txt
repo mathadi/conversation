@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sqlmodel
+asyncpg
+psycopg2-binary
+pydantic-settings
+httpx
+python-dotenv
+huggingface_hub
+torch
+transformers
+accelerate
+
