@@ -8,7 +8,7 @@
 
 body {
   font-family: var(--font-sans);
-  @apply bg-slate-50 text-slate-900 dark:bg-[#0f172a] dark:text-slate-200;
+  @apply bg-slate-50 text-slate-900;
   overflow: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
@@ -34,8 +34,15 @@ body {
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fadeIn {
@@ -43,8 +50,15 @@ body {
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .animate-slideIn {
@@ -53,24 +67,24 @@ body {
 
 /* Glassmorphism Utilities */
 .glass {
-  @apply bg-white/70 dark:bg-[#1e293b]/70;
+  @apply bg-white/70;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  @apply border border-white/20 dark:border-white/10;
+  @apply border border-white/20;
 }
 
 .glass-panel {
-  @apply bg-white/80 dark:bg-[#0f172a]/60;
+  @apply bg-white/80;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  @apply border-r border-slate-200/50 dark:border-white/5;
+  @apply border-r border-slate-200/50;
 }
 
 /* Input Autofill Fix */
 input:-webkit-autofill,
-input:-webkit-autofill:hover, 
-input:-webkit-autofill:focus, 
-input:-webkit-autofill:active{
-    -webkit-box-shadow: 0 0 0 30px #1e293b inset !important;
-    -webkit-text-fill-color: white !important;
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #1e293b inset !important;
+  -webkit-text-fill-color: white !important;
 }
