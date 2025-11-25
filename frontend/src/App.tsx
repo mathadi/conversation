@@ -87,22 +87,15 @@ function App() {
         const convResponse = await fetch(`${API_BASE}/conversations/${currentConversation.id}`)
         const updatedConv = await convResponse.json()
         setCurrentConversation(updatedConv)
-        setMessage('')
       } else {
-        const errorText = await response.text()
-        console.error('Erreur:', response.status, errorText)
+        setMessage(currentMsg) // Restore on error
       }
     } catch (error) {
-      console.error('Exception:', error)
-  //     } else {
-  //       setMessage(currentMsg) // Restore on error
-  //     }
-  //   } catch (error) {
-  //     console.error('Erreur envoi message:', error)
-  //     setMessage(currentMsg)
-  //   }
-  //   setLoading(false)
-  // }
+      console.error('Erreur envoi message:', error)
+      setMessage(currentMsg)
+    }
+    setLoading(false)
+  }
 
   const deleteConversation = async (id: number) => {
     if (!confirm('Supprimer cette conversation ?')) return
