@@ -59,7 +59,7 @@ function App() {
           await fetch(`${API_BASE}/conversations/${currentConversation.id}`, { method: 'DELETE' })
         }
       }
-      
+
       const title = mode === 'ai_initiated' ? 'Conversation IA' : 'Nouvelle conversation'
       const response = await fetch(`${API_BASE}/conversations`, {
         method: 'POST',
@@ -73,75 +73,6 @@ function App() {
       await loadConversations()
     } catch (error) {
       console.error('Erreur création conversation:', error)
-    }
-  }
-
-  const sendMessage = async () => {
-    if (!message.trim() || !currentConversation || loading) return
-
-    const currentMsg = message
-    const originalMessages = [...currentConversation.messages]
-    setMessage('')
-    
-    // Afficher le message utilisateur immédiatement
-    const tempUserMsg: Message = {
-      id: 'temp-' + Date.now(),
-      sender: 'user',
-      content: currentMsg,
-      timestamp: new Date().toISOString()
-    }
-    
-    setCurrentConversation({
-      ...currentConversation,
-      messages: [...currentConversation.messages, tempUserMsg]
-    })
-    
-    setLoading(true)
-
-    try {
-      const response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: currentMsg })
-      })
-      
-      if (response.ok) {
-        const aiMessage = await response.json()
-        console.log('Message IA reçu:', aiMessage)
-        
-        // Recharger la conversation complète
-        await new Promise(resolve => setTimeout(resolve, 500)) // Petit délai
-        const convResponse = await fetch(`${API_BASE}/conversations/${currentConversation.id}`, {
-          headers: {
-            'ngrok-skip-browser-warning': 'true'
-          }
-        })
-        
-        if (convResponse.ok) {
-          const updatedConv = await convResponse.json()
-          console.log('Conversation mise à jour:', updatedConv)
-          console.log('Nombre de messages:', updatedConv.messages?.length)
-          setCurrentConversation(updatedConv)
-        } else {
-          console.error('Erreur rechargement conversation:', convResponse.status)
-        }
-        setLoading(false)
-      } else {
-        setMessage(currentMsg)
-        setCurrentConversation({
-          ...currentConversation,
-          messages: originalMessages
-        })
-        setLoading(false)
-      }
-    } catch (error) {
-      console.error('Erreur envoi message:', error)
-      setMessage(currentMsg)
-      setCurrentConversation({
-        ...currentConversation,
-        messages: originalMessages
-      })
-      setLoading(false)
     }
   }
 
@@ -175,6 +106,100 @@ function App() {
       setEditingId(null)
     } catch (error) {
       console.error('Erreur renommage:', error)
+    }
+  }
+
+  const sendMessage = async () => {
+    if (!message.trim() || !currentConversation) return
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      sender: 'user',
+      content: message,
+      timestamp: new Date().toISOString()
+    }
+
+    const updatedMessages = [...currentConversation.messages, userMsg]
+    const updatedConversation = { ...currentConversation, messages: updatedMessages }
+
+    setCurrentConversation(updatedConversation)
+    setConversations(conversations.map(c => c.id === currentConversation.id ? updatedConversation : c))
+    setMessage('')
+    setLoading(true)
+
+    try {
+      const response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: userMsg.content, stream: true })
+      })
+
+      if (!response.ok) throw new Error('Erreur réseau')
+
+      const contentType = response.headers.get('content-type')
+      let aiContent = ''
+      const aiMsgId = (Date.now() + 1).toString()
+      const aiMsg: Message = {
+        id: aiMsgId,
+        sender: 'ai',
+        content: '',
+        timestamp: new Date().toISOString()
+      }
+
+      // Add empty AI message immediately
+      let messagesWithAi = [...updatedMessages, aiMsg]
+      setCurrentConversation({ ...updatedConversation, messages: messagesWithAi })
+
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json()
+        aiContent = data.content
+        
+        // Update with full content at once
+        setCurrentConversation(prev => {
+            if (!prev) return null
+            const newMessages = prev.messages.map(m =>
+              m.id === aiMsgId ? { ...m, content: aiContent } : m
+            )
+            return { ...prev, messages: newMessages }
+        })
+      } else {
+        const reader = response.body?.getReader()
+        const decoder = new TextDecoder()
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            const chunk = decoder.decode(value, { stream: true })
+            aiContent += chunk
+
+            // Update local state for streaming effect
+            setCurrentConversation(prev => {
+              if (!prev) return null
+              const newMessages = prev.messages.map(m =>
+                m.id === aiMsgId ? { ...m, content: aiContent } : m
+              )
+              return { ...prev, messages: newMessages }
+            })
+          }
+        }
+      }
+
+      // Final update to conversations list
+      setConversations(prev => prev.map(c => {
+        if (c.id === currentConversation.id) {
+          // Ensure we have the latest messages
+          const finalMessages = [...updatedMessages, { ...aiMsg, content: aiContent }]
+          return { ...c, messages: finalMessages }
+        }
+        return c
+      }))
+
+    } catch (error) {
+      console.error('Erreur envoi message:', error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -260,7 +285,7 @@ function App() {
                         await fetch(`${API_BASE}/conversations/${currentConversation.id}`, { method: 'DELETE' })
                       }
                     }
-                    
+
                     // Recharger la conversation complète depuis le serveur
                     const response = await fetch(`${API_BASE}/conversations/${conv.id}`, {
                       headers: { 'ngrok-skip-browser-warning': 'true' }
