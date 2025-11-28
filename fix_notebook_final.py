@@ -1,6 +1,6 @@
 import json
 
-notebook_path = r"c:\Users\noumo\Documents\conversation\conversation_ia_qwen.ipynb"
+notebook_path = r"c:\Users\Junior.NOUMONVI\Documents\conversation\conversation_ia_qwen.ipynb"
 
 # 1. DEFINITION DU CODE CORRECT
 
@@ -131,12 +131,16 @@ chat_service_code = [
 # chat_router.py (AVEC TOUTES LES ROUTES)
 chat_router_code = [
     "%%writefile chat_router.py\n",
-    "from fastapi import APIRouter, HTTPException\n",
+    "from fastapi import APIRouter, HTTPException, UploadFile, File\n",
     "from fastapi.responses import StreamingResponse\n",
     "from typing import List\n",
     "from schemas import ConversationCreate, ConversationResponse, MessageCreate, MessageResponse\n",
+    "from models import Message\n",
     "from history_service import HistoryService\n",
     "from chat_service import chat_service\n",
+    "import pypdf\n",
+    "import io\n",
+    "import time\n",
     "\n",
     "router = APIRouter()\n",
     "history_service = HistoryService()\n",
@@ -197,39 +201,6 @@ chat_router_code = [
     "                sender=m.sender,\n",
     "                content=m.content,\n",
     "                timestamp=m.timestamp,\n",
-    "                suggestions=m.suggestions\n",
-    "            ) for m in conv.messages\n",
-    "        ]\n",
-    "    )\n",
-    "\n",
-    "@router.post(\"/conversations/{conversation_id}/messages\", response_model=MessageResponse)\n",
-    "async def send_message(conversation_id: str, message: MessageCreate):\n",
-    "    conv = await history_service.get_conversation(conversation_id)\n",
-    "    if not conv:\n",
-    "        raise HTTPException(status_code=404, detail=\"Conversation not found\")\n",
-    "\n",
-    "    user_embedding = chat_service.generate_embedding(message.content)\n",
-    "    user_msg = await history_service.add_message(conversation_id, \"user\", message.content, user_embedding, None)\n",
-    "\n",
-    "    history = await history_service.get_messages(conversation_id)\n",
-    "\n",
-    "    if message.stream:\n",
-    "        async def event_generator():\n",
-    "            full_response = \"\"\n",
-    "            async for token in chat_service.generate_response_stream(history):\n",
-    "                full_response += token\n",
-    "                yield token\n",
-    "            \n",
-    "            ai_embedding = chat_service.generate_embedding(full_response)\n",
-    "            await history_service.add_message(conversation_id, \"ai\", full_response, ai_embedding, None)\n",
-    "\n",
-    "        return StreamingResponse(event_generator(), media_type=\"text/plain\")\n",
-    "\n",
-    "    ai_response, suggestions = await chat_service.generate_response(history)\n",
-    "\n",
-    "    ai_embedding = chat_service.generate_embedding(ai_response)\n",
-    "    ai_msg = await history_service.add_message(conversation_id, \"ai\", ai_response, ai_embedding, None)\n",
-    "\n",
     "    return MessageResponse(\n",
     "        id=ai_msg.id,\n",
     "        sender=ai_msg.sender,\n",
@@ -265,35 +236,6 @@ chat_router_code = [
     "                sender=m.sender,\n",
     "                content=m.content,\n",
     "                timestamp=m.timestamp,\n",
-    "                suggestions=m.suggestions\n",
-    "            ) for m in updated.messages\n",
-    "        ]\n",
-    "    )\n"
-]
-
-# 2. APPLICATION DU PATCH
-
-with open(notebook_path, 'r', encoding='utf-8') as f:
-    nb = json.load(f)
-
-# Supprimer TOUTES les cellules qui écrivent ces fichiers pour éviter les conflits
-# On ne gardera qu'une seule instance de chaque à la fin
-new_cells = []
-service_added = False
-router_added = False
-
-# On itère pour nettoyer
-for cell in nb['cells']:
-    keep = True
-    if cell['cell_type'] == 'code':
-        source = cell['source']
-        if source and source[0].strip().startswith('%%writefile chat_service.py'):
-            keep = False
-        elif source and source[0].strip().startswith('%%writefile chat_router.py'):
-            keep = False
-    
-    if keep:
-        new_cells.append(cell)
 
 # Insérer les nouvelles cellules avant la cellule de démarrage (main.py ou uvicorn)
 # On cherche l'index de main.py
@@ -302,6 +244,12 @@ for i, cell in enumerate(new_cells):
     if cell['cell_type'] == 'code' and cell['source'] and '%%writefile main.py' in cell['source'][0]:
         insert_idx = i
         break
+    
+# Injecter l'installation de pypdf dans la première cellule
+if nb['cells'][0]['cell_type'] == 'code':
+    source = nb['cells'][0]['source']
+    if "!pip install -q pypdf" not in "".join(source):
+        nb['cells'][0]['source'].insert(0, "!pip install -q pypdf\n")
 
 # Créer les cellules
 cell_service = {

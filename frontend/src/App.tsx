@@ -118,17 +118,10 @@ function App() {
     } catch (error) {
       console.error('Erreur renommage:', error)
     }
-  }
-
-  const [isThinking, setIsThinking] = useState(false)
-
-  const sendMessage = async () => {
-    if (!message.trim() || !currentConversation) return
-
     const userMsg: Message = {
       id: Date.now().toString(),
       sender: 'user',
-      content: message,
+      content: selectedFile ? `📎 Analyse du document : ${selectedFile.name}` : message,
       timestamp: new Date().toISOString()
     }
 
@@ -138,15 +131,30 @@ function App() {
     setCurrentConversation(updatedConversation)
     setConversations(conversations.map(c => c.id === currentConversation.id ? updatedConversation : c))
     setMessage('')
+    setSelectedFile(null) // Clear file after sending
     setLoading(true)
     setIsThinking(true)
 
     try {
-      const response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: userMsg.content, stream: true })
-      })
+      let response;
+      
+      if (selectedFile) {
+        const formData = new FormData()
+        formData.append('file', selectedFile)
+        formData.append('conversation_id', currentConversation.id)
+        
+        response = await fetch(`${API_BASE}/analyze-pdf`, {
+          method: 'POST',
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          body: formData
+        })
+      } else {
+        response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: userMsg.content, stream: true })
+        })
+      }
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -318,7 +326,7 @@ function App() {
                       const response = await fetch(`${API_BASE}/conversations/${conv.id}`, {
                         headers: { 'ngrok-skip-browser-warning': 'true' }
                       })
-                      
+
                       if (response.ok) {
                         const fullConv = await response.json()
                         setCurrentConversation(fullConv)
@@ -456,24 +464,46 @@ function App() {
               )}
               <div ref={messagesEndRef} />
             </div>
-
             {/* Input Area */}
             <div className="p-6 relative z-20">
               <div className="max-w-4xl mx-auto relative">
                 <div className="flex items-center gap-2 bg-white rounded-2xl p-2 shadow-lg border border-slate-200">
                   <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    accept=".pdf"
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={loading}
+                    className={`p-3 rounded-xl transition-all ${selectedFile ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}
+                    title="Analyser un PDF"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                  </button>
+                  {selectedFile && (
+                    <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                      <span className="text-xs font-medium text-blue-700 truncate max-w-[150px]">{selectedFile.name}</span>
+                      <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }} className="text-blue-400 hover:text-blue-600">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                      </button>
+                    </div>
+                  )}
+                  <input
                     type="text"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                    placeholder="Écrivez votre message..."
+                    placeholder={selectedFile ? "Ajoutez un commentaire (optionnel)..." : "Écrivez votre message..."}
                     className="flex-1 bg-transparent text-slate-900 placeholder-slate-400 px-4 py-3 focus:outline-none"
                     disabled={loading}
                     autoFocus
                   />
                   <button
                     onClick={sendMessage}
-                    disabled={loading || !message.trim()}
+                    disabled={loading || (!message.trim() && !selectedFile)}
                     className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-xl transition-all disabled:opacity-50 disabled:hover:bg-blue-600 shadow-lg hover:shadow-blue-500/25 active:scale-95"
                   >
                     <svg className="w-5 h-5 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
@@ -503,8 +533,9 @@ function App() {
               </div>
             </div>
           </div>
-        )}
-      </div>
+        )
+        }
+      </div >
 
       {/* Delete Confirmation Modal */}
       {
