@@ -100,6 +100,17 @@ function App() {
       const response = await fetch(`${API_BASE}/conversations/${id}?title=${encodeURIComponent(newTitle)}`, {
         method: 'PATCH'
       })
+
+      if (response.status === 404) {
+        console.warn('Conversation introuvable pour renommage (404), suppression locale.')
+        setConversations(prev => prev.filter(c => c.id !== id))
+        if (currentConversation?.id === id) setCurrentConversation(null)
+        setEditingId(null)
+        return
+      }
+
+      if (!response.ok) return
+
       const updated = await response.json()
       setConversations(conversations.map(c => c.id === id ? updated : c))
       if (currentConversation?.id === id) setCurrentConversation(updated)
@@ -137,7 +148,15 @@ function App() {
         body: JSON.stringify({ content: userMsg.content, stream: true })
       })
 
-      if (!response.ok) throw new Error('Erreur réseau')
+      if (!response.ok) {
+        if (response.status === 404) {
+          alert("Cette conversation n'existe plus sur le serveur.")
+          setConversations(prev => prev.filter(c => c.id !== currentConversation.id))
+          setCurrentConversation(null)
+          return
+        }
+        throw new Error('Erreur réseau')
+      }
 
       const contentType = response.headers.get('content-type')
       let aiContent = ''
@@ -295,13 +314,25 @@ function App() {
                     }
 
                     // Recharger la conversation complète depuis le serveur
-                    const response = await fetch(`${API_BASE}/conversations/${conv.id}`, {
-                      headers: { 'ngrok-skip-browser-warning': 'true' }
-                    })
-                    if (response.ok) {
-                      const fullConv = await response.json()
-                      setCurrentConversation(fullConv)
-                    } else {
+                    try {
+                      const response = await fetch(`${API_BASE}/conversations/${conv.id}`, {
+                        headers: { 'ngrok-skip-browser-warning': 'true' }
+                      })
+                      
+                      if (response.ok) {
+                        const fullConv = await response.json()
+                        setCurrentConversation(fullConv)
+                      } else if (response.status === 404) {
+                        // La conversation n'existe plus sur le serveur
+                        console.warn('Conversation introuvable (404), suppression locale.')
+                        setConversations(prev => prev.filter(c => c.id !== conv.id))
+                        if (currentConversation?.id === conv.id) setCurrentConversation(null)
+                      } else {
+                        // Autre erreur, on garde la version locale
+                        setCurrentConversation(conv)
+                      }
+                    } catch (error) {
+                      console.error('Erreur chargement conversation:', error)
                       setCurrentConversation(conv)
                     }
                   }}
@@ -476,34 +507,36 @@ function App() {
       </div>
 
       {/* Delete Confirmation Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/20 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-200 transform transition-all scale-100 animate-slideIn">
-            <div className="text-center">
-              <div className="w-12 h-12 rounded-full bg-red-100 text-red-500 flex items-center justify-center mx-auto mb-4">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-              </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-2">Supprimer la conversation ?</h3>
-              <p className="text-slate-500 text-sm mb-6">Cette action est irréversible. Voulez-vous vraiment continuer ?</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={confirmDelete}
-                  className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors shadow-lg shadow-red-500/20"
-                >
-                  Supprimer
-                </button>
+      {
+        showDeleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/20 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-200 transform transition-all scale-100 animate-slideIn">
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-red-100 text-red-500 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 mb-2">Supprimer la conversation ?</h3>
+                <p className="text-slate-500 text-sm mb-6">Cette action est irréversible. Voulez-vous vraiment continuer ?</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowDeleteModal(false)}
+                    className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={confirmDelete}
+                    className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors shadow-lg shadow-red-500/20"
+                  >
+                    Supprimer
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   )
 }
 
