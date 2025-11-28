@@ -109,6 +109,8 @@ function App() {
     }
   }
 
+  const [isThinking, setIsThinking] = useState(false)
+
   const sendMessage = async () => {
     if (!message.trim() || !currentConversation) return
 
@@ -126,6 +128,7 @@ function App() {
     setConversations(conversations.map(c => c.id === currentConversation.id ? updatedConversation : c))
     setMessage('')
     setLoading(true)
+    setIsThinking(true)
 
     try {
       const response = await fetch(`${API_BASE}/conversations/${currentConversation.id}/messages`, {
@@ -146,25 +149,20 @@ function App() {
         timestamp: new Date().toISOString()
       }
 
-      // Add empty AI message immediately
-      let messagesWithAi = [...updatedMessages, aiMsg]
-      setCurrentConversation({ ...updatedConversation, messages: messagesWithAi })
-
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json()
         aiContent = data.content
-        
-        // Update with full content at once
-        setCurrentConversation(prev => {
-            if (!prev) return null
-            const newMessages = prev.messages.map(m =>
-              m.id === aiMsgId ? { ...m, content: aiContent } : m
-            )
-            return { ...prev, messages: newMessages }
-        })
+        setIsThinking(false)
+
+        // Add full message
+        const finalMessages = [...updatedMessages, { ...aiMsg, content: aiContent }]
+        setCurrentConversation({ ...updatedConversation, messages: finalMessages })
+        setConversations(prev => prev.map(c => c.id === currentConversation.id ? { ...c, messages: finalMessages } : c))
+
       } else {
         const reader = response.body?.getReader()
         const decoder = new TextDecoder()
+        let isFirstChunk = true
 
         if (reader) {
           while (true) {
@@ -174,22 +172,31 @@ function App() {
             const chunk = decoder.decode(value, { stream: true })
             aiContent += chunk
 
-            // Update local state for streaming effect
-            setCurrentConversation(prev => {
-              if (!prev) return null
-              const newMessages = prev.messages.map(m =>
-                m.id === aiMsgId ? { ...m, content: aiContent } : m
-              )
-              return { ...prev, messages: newMessages }
-            })
+            if (isFirstChunk) {
+              setIsThinking(false)
+              isFirstChunk = false
+              // Initialize AI message with first chunk
+              setCurrentConversation(prev => {
+                if (!prev) return null
+                return { ...prev, messages: [...prev.messages, { ...aiMsg, content: aiContent }] }
+              })
+            } else {
+              // Update existing AI message
+              setCurrentConversation(prev => {
+                if (!prev) return null
+                const newMessages = prev.messages.map(m =>
+                  m.id === aiMsgId ? { ...m, content: aiContent } : m
+                )
+                return { ...prev, messages: newMessages }
+              })
+            }
           }
         }
       }
 
-      // Final update to conversations list
+      // Final update to ensure consistency
       setConversations(prev => prev.map(c => {
         if (c.id === currentConversation.id) {
-          // Ensure we have the latest messages
           const finalMessages = [...updatedMessages, { ...aiMsg, content: aiContent }]
           return { ...c, messages: finalMessages }
         }
@@ -200,6 +207,7 @@ function App() {
       console.error('Erreur envoi message:', error)
     } finally {
       setLoading(false)
+      setIsThinking(false)
     }
   }
 
@@ -403,7 +411,7 @@ function App() {
                 </div>
               ))}
 
-              {loading && (
+              {isThinking && (
                 <div className="flex gap-4 animate-fadeIn">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center border border-white/10">
                     🤖

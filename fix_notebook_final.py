@@ -1,0 +1,332 @@
+import json
+
+notebook_path = r"c:\Users\noumo\Documents\conversation\conversation_ia_qwen.ipynb"
+
+# 1. DEFINITION DU CODE CORRECT
+
+# chat_service.py (AVEC METRIQUES)
+chat_service_code = [
+    "%%writefile chat_service.py\n",
+    "from typing import List, Tuple, Optional\n",
+    "from models import Message\n",
+    "from sentence_transformers import SentenceTransformer\n",
+    "import torch\n",
+    "import os\n",
+    "import time\n",
+    "\n",
+    "# CONFIGURATION CACHE\n",
+    "CACHE_DIR = \"/content/drive/MyDrive/huggingface_cache\"\n",
+    "os.environ['HF_HOME'] = CACHE_DIR\n",
+    "os.environ['TRANSFORMERS_CACHE'] = CACHE_DIR\n",
+    "\n",
+    "class ChatService:\n",
+    "    def __init__(self):\n",
+    "        self.model = None\n",
+    "        self.tokenizer = None\n",
+    "        self.embedding_model = None\n",
+    "\n",
+    "    def load_models(self):\n",
+    "        if not os.path.exists(CACHE_DIR):\n",
+    "            os.makedirs(CACHE_DIR, exist_ok=True)\n",
+    "            print(f\"📁 Dossier de cache créé : {CACHE_DIR}\")\n",
+    "\n",
+    "        if self.model is None:\n",
+    "            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig\n",
+    "\n",
+    "            quantization_config = BitsAndBytesConfig(\n",
+    "                load_in_4bit=True,\n",
+    "                bnb_4bit_compute_dtype=torch.float16\n",
+    "            )\n",
+    "\n",
+    "            print(f\"🔄 Vérification du modèle Qwen dans {CACHE_DIR}...\")\n",
+    "\n",
+    "            self.tokenizer = AutoTokenizer.from_pretrained(\n",
+    "                \"Qwen/Qwen2.5-7B-Instruct\",\n",
+    "                cache_dir=CACHE_DIR\n",
+    "            )\n",
+    "            self.model = AutoModelForCausalLM.from_pretrained(\n",
+    "                \"Qwen/Qwen2.5-7B-Instruct\",\n",
+    "                quantization_config=quantization_config,\n",
+    "                device_map=\"auto\",\n",
+    "                cache_dir=CACHE_DIR\n",
+    "            )\n",
+    "            print(\"✅ Qwen 7B chargé\")\n",
+    "\n",
+    "        if self.embedding_model is None:\n",
+    "            print(\"🔄 Chargement modèle embeddings...\")\n",
+    "            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2', cache_folder=CACHE_DIR)\n",
+    "            print(\"✅ Modèle embeddings chargé\")\n",
+    "\n",
+    "    def generate_embedding(self, text: str) -> List[float]:\n",
+    "        if self.embedding_model is None:\n",
+    "            self.load_models()\n",
+    "        return self.embedding_model.encode(text).tolist()\n",
+    "\n",
+    "    async def generate_response_stream(self, history: List[Message]):\n",
+    "        from transformers import TextIteratorStreamer\n",
+    "        from threading import Thread\n",
+    "\n",
+    "        if self.model is None:\n",
+    "            self.load_models()\n",
+    "\n",
+    "        messages = [\n",
+    "            {\"role\": \"system\", \"content\": \"Tu es un assistant IA intelligent et amical. Réponds de manière naturelle et concise en français.\"}\n",
+    "        ]\n",
+    "        for msg in history:\n",
+    "            role = \"user\" if msg.sender == \"user\" else \"assistant\"\n",
+    "            messages.append({\"role\": role, \"content\": msg.content})\n",
+    "\n",
+    "        text = self.tokenizer.apply_chat_template(\n",
+    "            messages,\n",
+    "            tokenize=False,\n",
+    "            add_generation_prompt=True\n",
+    "        )\n",
+    "\n",
+    "        inputs = self.tokenizer([text], return_tensors=\"pt\", truncation=True, max_length=1024).to(self.model.device)\n",
+    "\n",
+    "        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)\n",
+    "        generation_kwargs = dict(\n",
+    "            inputs,\n",
+    "            streamer=streamer,\n",
+    "            max_new_tokens=512,\n",
+    "            do_sample=True,\n",
+    "            temperature=0.7,\n",
+    "            top_p=0.9,\n",
+    "            pad_token_id=self.tokenizer.eos_token_id\n",
+    "        )\n",
+    "\n",
+    "        start_time = time.time()\n",
+    "        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)\n",
+    "        thread.start()\n",
+    "\n",
+    "        token_count = 0\n",
+    "        first_token_received = False\n",
+    "\n",
+    "        for new_text in streamer:\n",
+    "            if not first_token_received:\n",
+    "                latency = time.time() - start_time\n",
+    "                print(f\"\\n⏱️ LATENCE (Temps avant 1er mot) : {latency:.4f} secondes\")\n",
+    "                first_token_received = True\n",
+    "\n",
+    "            token_count += 1\n",
+    "            yield new_text\n",
+    "\n",
+    "        end_time = time.time()\n",
+    "        total_time = end_time - start_time\n",
+    "        tokens_per_sec = token_count / total_time if total_time > 0 else 0\n",
+    "\n",
+    "        print(f\"⚡ VITESSE DE GENERATION : {tokens_per_sec:.2f} tokens/seconde\")\n",
+    "        print(f\"📝 Total tokens (approx stream) : {token_count}\")\n",
+    "        print(\"-\" * 30)\n",
+    "\n",
+    "    async def generate_response(self, history: List[Message]) -> Tuple[str, Optional[List[str]]]:\n",
+    "        full_response = \"\"\n",
+    "        async for token in self.generate_response_stream(history):\n",
+    "            full_response += token\n",
+    "        return full_response, None\n",
+    "\n",
+    "chat_service = ChatService()"
+]
+
+# chat_router.py (AVEC TOUTES LES ROUTES)
+chat_router_code = [
+    "%%writefile chat_router.py\n",
+    "from fastapi import APIRouter, HTTPException\n",
+    "from fastapi.responses import StreamingResponse\n",
+    "from typing import List\n",
+    "from schemas import ConversationCreate, ConversationResponse, MessageCreate, MessageResponse\n",
+    "from history_service import HistoryService\n",
+    "from chat_service import chat_service\n",
+    "\n",
+    "router = APIRouter()\n",
+    "history_service = HistoryService()\n",
+    "\n",
+    "@router.post(\"/conversations\", response_model=ConversationResponse)\n",
+    "async def create_conversation(conversation: ConversationCreate):\n",
+    "    conv = await history_service.create_conversation(conversation)\n",
+    "\n",
+    "    if conversation.mode == \"ai_initiated\":\n",
+    "        greeting = \"Bonjour ! Je suis votre assistant IA. Comment puis-je vous aider aujourd'hui ?\"\n",
+    "        greeting_embedding = chat_service.generate_embedding(greeting)\n",
+    "        await history_service.add_message(conv.id, \"ai\", greeting, greeting_embedding, None)\n",
+    "        conv = await history_service.get_conversation(conv.id)\n",
+    "\n",
+    "    return ConversationResponse(\n",
+    "        id=conv.id,\n",
+    "        title=conv.title,\n",
+    "        mode=conv.mode,\n",
+    "        created_at=conv.created_at,\n",
+    "        messages=[\n",
+    "            MessageResponse(\n",
+    "                id=m.id,\n",
+    "                sender=m.sender,\n",
+    "                content=m.content,\n",
+    "                timestamp=m.timestamp,\n",
+    "                suggestions=m.suggestions\n",
+    "            ) for m in conv.messages\n",
+    "        ]\n",
+    "    )\n",
+    "\n",
+    "@router.get(\"/conversations\", response_model=List[ConversationResponse])\n",
+    "async def list_conversations():\n",
+    "    convs = await history_service.list_conversations()\n",
+    "    return [\n",
+    "        ConversationResponse(\n",
+    "            id=c.id,\n",
+    "            title=c.title,\n",
+    "            mode=c.mode,\n",
+    "            created_at=c.created_at,\n",
+    "            messages=[]\n",
+    "        ) for c in convs\n",
+    "    ]\n",
+    "\n",
+    "@router.get(\"/conversations/{conversation_id}\", response_model=ConversationResponse)\n",
+    "async def get_conversation(conversation_id: str):\n",
+    "    conv = await history_service.get_conversation(conversation_id)\n",
+    "    if not conv:\n",
+    "        raise HTTPException(status_code=404, detail=\"Conversation not found\")\n",
+    "\n",
+    "    return ConversationResponse(\n",
+    "        id=conv.id,\n",
+    "        title=conv.title,\n",
+    "        mode=conv.mode,\n",
+    "        created_at=conv.created_at,\n",
+    "        messages=[\n",
+    "            MessageResponse(\n",
+    "                id=m.id,\n",
+    "                sender=m.sender,\n",
+    "                content=m.content,\n",
+    "                timestamp=m.timestamp,\n",
+    "                suggestions=m.suggestions\n",
+    "            ) for m in conv.messages\n",
+    "        ]\n",
+    "    )\n",
+    "\n",
+    "@router.post(\"/conversations/{conversation_id}/messages\", response_model=MessageResponse)\n",
+    "async def send_message(conversation_id: str, message: MessageCreate):\n",
+    "    conv = await history_service.get_conversation(conversation_id)\n",
+    "    if not conv:\n",
+    "        raise HTTPException(status_code=404, detail=\"Conversation not found\")\n",
+    "\n",
+    "    user_embedding = chat_service.generate_embedding(message.content)\n",
+    "    user_msg = await history_service.add_message(conversation_id, \"user\", message.content, user_embedding, None)\n",
+    "\n",
+    "    history = await history_service.get_messages(conversation_id)\n",
+    "\n",
+    "    if message.stream:\n",
+    "        async def event_generator():\n",
+    "            full_response = \"\"\n",
+    "            async for token in chat_service.generate_response_stream(history):\n",
+    "                full_response += token\n",
+    "                yield token\n",
+    "            \n",
+    "            ai_embedding = chat_service.generate_embedding(full_response)\n",
+    "            await history_service.add_message(conversation_id, \"ai\", full_response, ai_embedding, None)\n",
+    "\n",
+    "        return StreamingResponse(event_generator(), media_type=\"text/plain\")\n",
+    "\n",
+    "    ai_response, suggestions = await chat_service.generate_response(history)\n",
+    "\n",
+    "    ai_embedding = chat_service.generate_embedding(ai_response)\n",
+    "    ai_msg = await history_service.add_message(conversation_id, \"ai\", ai_response, ai_embedding, None)\n",
+    "\n",
+    "    return MessageResponse(\n",
+    "        id=ai_msg.id,\n",
+    "        sender=ai_msg.sender,\n",
+    "        content=ai_msg.content,\n",
+    "        timestamp=ai_msg.timestamp,\n",
+    "        suggestions=ai_msg.suggestions\n",
+    "    )\n",
+    "\n",
+    "@router.delete(\"/conversations/{conversation_id}\")\n",
+    "async def delete_conversation(conversation_id: str):\n",
+    "    conv = await history_service.get_conversation(conversation_id)\n",
+    "    if not conv:\n",
+    "        raise HTTPException(status_code=404, detail=\"Conversation not found\")\n",
+    "\n",
+    "    await history_service.delete_conversation(conversation_id)\n",
+    "    return {\"message\": \"Conversation supprimée\"}\n",
+    "\n",
+    "@router.patch(\"/conversations/{conversation_id}\")\n",
+    "async def rename_conversation(conversation_id: str, title: str):\n",
+    "    conv = await history_service.get_conversation(conversation_id)\n",
+    "    if not conv:\n",
+    "        raise HTTPException(status_code=404, detail=\"Conversation not found\")\n",
+    "\n",
+    "    updated = await history_service.rename_conversation(conversation_id, title)\n",
+    "    return ConversationResponse(\n",
+    "        id=updated.id,\n",
+    "        title=updated.title,\n",
+    "        mode=updated.mode,\n",
+    "        created_at=updated.created_at,\n",
+    "        messages=[\n",
+    "            MessageResponse(\n",
+    "                id=m.id,\n",
+    "                sender=m.sender,\n",
+    "                content=m.content,\n",
+    "                timestamp=m.timestamp,\n",
+    "                suggestions=m.suggestions\n",
+    "            ) for m in updated.messages\n",
+    "        ]\n",
+    "    )\n"
+]
+
+# 2. APPLICATION DU PATCH
+
+with open(notebook_path, 'r', encoding='utf-8') as f:
+    nb = json.load(f)
+
+# Supprimer TOUTES les cellules qui écrivent ces fichiers pour éviter les conflits
+# On ne gardera qu'une seule instance de chaque à la fin
+new_cells = []
+service_added = False
+router_added = False
+
+# On itère pour nettoyer
+for cell in nb['cells']:
+    keep = True
+    if cell['cell_type'] == 'code':
+        source = cell['source']
+        if source and source[0].strip().startswith('%%writefile chat_service.py'):
+            keep = False
+        elif source and source[0].strip().startswith('%%writefile chat_router.py'):
+            keep = False
+    
+    if keep:
+        new_cells.append(cell)
+
+# Insérer les nouvelles cellules avant la cellule de démarrage (main.py ou uvicorn)
+# On cherche l'index de main.py
+insert_idx = len(new_cells) - 1
+for i, cell in enumerate(new_cells):
+    if cell['cell_type'] == 'code' and cell['source'] and '%%writefile main.py' in cell['source'][0]:
+        insert_idx = i
+        break
+
+# Créer les cellules
+cell_service = {
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": chat_service_code
+}
+
+cell_router = {
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": chat_router_code
+}
+
+# Insérer
+new_cells.insert(insert_idx, cell_router)
+new_cells.insert(insert_idx, cell_service)
+
+nb['cells'] = new_cells
+
+with open(notebook_path, 'w', encoding='utf-8') as f:
+    json.dump(nb, f, indent=2)
+
+print("✅ Notebook patched: Duplicates removed, correct code injected.")
