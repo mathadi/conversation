@@ -118,6 +118,22 @@ function App() {
     } catch (error) {
       console.error('Erreur renommage:', error)
     }
+  }
+
+  const [isThinking, setIsThinking] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const sendMessage = async () => {
+    if ((!message.trim() && !selectedFile) || !currentConversation) return
     const userMsg: Message = {
       id: Date.now().toString(),
       sender: 'user',
